@@ -1,0 +1,131 @@
+version: "3.7"
+
+services:
+  traefik:
+    image: traefik:v2.0.7
+    command:
+      - --log.level=DEBUG
+      - --api.debug=true
+      - --api.insecure=true
+      - --entrypoints.web.address=:80
+      - --providers.docker.swarmmode=true
+      - --providers.docker.watch=true
+      - --providers.docker.network=${CLUSTER_NETWORK}
+      - --providers.docker.exposedbydefault=false
+    ports:
+      - 80:80
+      - 8080:8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - world
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role==manager]
+      restart_policy:
+        condition: on-failure
+      labels:
+        - traefik.enable=true
+        - traefik.docker.lbswarm=true
+        - traefik.docker.network=${CLUSTER_NETWORK}
+        - traefik.http.routers.traefik.entrypoints=web
+        - traefik.http.routers.traefik.service=traefik1
+        - traefik.http.services.traefik1.loadbalancer.server.port=80
+        - traefik.http.services.traefik1.loadbalancer.server.scheme=http
+        - traefik.http.services.traefik1.loadbalancer.passhostheader=true
+        - traefik.http.services.traefik1.loadbalancer.sticky=true
+
+  nginx:
+    image: nginx
+    networks:
+      - world
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.docker.lbswarm=true
+        - traefik.docker.network=${CLUSTER_NETWORK}
+        - traefik.http.routers.nginx.rule=Host(`${CLUSTER_DNS}`)
+        - traefik.http.routers.nginx.entrypoints=web
+        - traefik.http.routers.nginx.service=nginx1
+        - traefik.http.services.nginx1.loadbalancer.server.port=80
+
+  whoami:
+    image: containous/whoami
+    networks:
+      - world
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.docker.lbswarm=true
+        - traefik.docker.network=${CLUSTER_NETWORK}
+        - traefik.http.routers.whoami.rule=Host(`${CLUSTER_DNS}`) && Path(`/whoami`)
+        - traefik.http.routers.whoami.entrypoints=web
+        - traefik.http.routers.whoami.service=whoami1
+        - traefik.http.services.whoami1.loadbalancer.server.port=80
+
+  visualizer:
+    image: dockersamples/visualizer:stable
+    ports:
+      - 9001:8080
+    stop_grace_period: 1m30s
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      placement:
+        constraints: [node.role==manager]
+
+  app:
+    image: app_cluster
+    build:
+      dockerfile: Dockerfile
+      target: app
+      context: app
+    working_dir: /home/node/app
+    command: node src/index.js
+    deploy:
+      replicas: 3
+      placement:
+        constraints: [node.role==manager]
+      labels:
+        - traefik.enable=true
+        - traefik.docker.lbswarm=true
+        - traefik.docker.network=${CLUSTER_NETWORK}
+        - traefik.http.routers.app.rule=Host(`${CLUSTER_DNS}`) && Path(`/app`)
+        - traefik.http.routers.app.entrypoints=web
+        - traefik.http.routers.app.service=app1
+        - traefik.http.services.app1.loadbalancer.server.port=3000
+    networks:
+      - world
+
+  app2:
+    image: app2_cluster
+    build:
+      dockerfile: Dockerfile
+      target: app2
+      context: app2
+    working_dir: /home/node/app
+    command: node src/index.js
+    deploy:
+      replicas: 3
+      placement:
+        constraints: [node.role==manager]
+      labels:
+        - traefik.enable=true
+        - traefik.docker.lbswarm=true
+        - traefik.docker.network=${CLUSTER_NETWORK}
+        - traefik.http.routers.app2.rule=Host(`${CLUSTER_DNS}`) && Path(`/app2`)
+        - traefik.http.routers.app2.entrypoints=web
+        - traefik.http.routers.app2.service=app2
+        - traefik.http.services.app2.loadbalancer.server.port=5000
+    networks:
+      - world
+
+networks:
+  world:
+    external: true
+    attachable: true
+    driver: overlay
+    name: ${CLUSTER_NETWORK}
