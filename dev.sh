@@ -61,6 +61,8 @@ function create_host {
 
   if [ "$HAS_HOST" != "false" ]; then
     sudo sed -i "s/${MASTER_IP}.*/${MASTER_IP} ${CLUSTER_DNS}/g" /etc/hosts
+  else
+    echo "${MASTER_IP} ${CLUSTER_DNS}" | sudo tee -a /etc/hosts
   fi
 }
 
@@ -74,3 +76,25 @@ function rm_deploy {
   join_master
   docker stack rm local_cluster && docker service ls
 }
+
+function build_images {
+  join_master
+  docker build -t app_cluster --target app -f ./Dockerfile app
+  docker build -t app2_cluster --target app2 -f ./Dockerfile app2
+}
+
+function leave_master {
+  eval $(docker-machine env -u)
+}
+
+function devhelp {
+  echo "
+  # setup
+  # 1) source dev.sh
+  # 2) create_machines
+  # 3) start_cluster
+  # 4) build_images
+  # 5) start_deploy"
+}
+
+devhelp
